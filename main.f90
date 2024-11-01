@@ -30,6 +30,7 @@ program main
   call cpu_time(t_start)
 
   print *, 'Generating elements.....................'
+  flush(6)
   ! generate surface elements
   call generate_surface_elements(surface_elements)
 
