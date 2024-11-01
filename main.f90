@@ -27,6 +27,7 @@ program main
   ! start time tracking to see execution length of steps
   call cpu_time(t_start)
 
+  print *, 'Generating elements.....................'
   ! generate surface elements
   call generate_surface_elements(surface_elements)
 
