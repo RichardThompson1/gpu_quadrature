@@ -30,7 +30,7 @@ program main
   call generate_surface_elements(surface_elements)
 
   ! time of surface generation
-  tcall cpu_time(t1)
+  call cpu_time(t1)
   time_generate = t1 - t_start
   print *, 'Time to generate surface elements:', time_generate, 'seconds.........................'
 
