@@ -60,9 +60,9 @@ end program main
 subroutine generate_surface_elements(surface_elements)
   implicit none
   real, intent(out) :: surface_elements(:,:)
-  integer :: i, num_elements
+  integer :: i
+  integer :: num_elements = size(surface_elements[, 1])
 
-  num_elements = size(surface_elements, 1)
 
   ! generating simple grid - might try to move to parabolic shaped surface
   do i = 1, num_elements
