@@ -21,6 +21,8 @@ program main
   allocate(surface_elements(num_elements,3))
   allocate(results(num_time_steps))
 
+  print *, 'Allocations complete, beginning program............................'
+
   ! setting observer position - for now just 0's
   observer_position = [0.0, 0.0, 0.0]
 
