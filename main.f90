@@ -65,9 +65,10 @@ subroutine generate_surface_elements(surface_elements)
   
   num_elements = size(surface_elements, 1)
 
-
+  print *, 'Num elements:',num_elements
   ! generating simple grid - might try to move to parabolic shaped surface
   do i = 1, num_elements
+    print *, i
     surface_elements(i,1) = real(i) * 0.01      ! x-coordinate
     surface_elements(i,2) = real(i) * 0.01      ! y-coordinate
     surface_elements(i,3) = 0                   ! z-coordinate
