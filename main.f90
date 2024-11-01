@@ -32,7 +32,12 @@ program main
   print *, 'Generating elements.....................'
   flush(6)
   ! generate surface elements
-  call generate_surface_elements(surface_elements)
+  do i = 1, num_elements
+    print *, i
+    surface_elements(i,1) = real(i) * 0.01      ! x-coordinate
+    surface_elements(i,2) = real(i) * 0.01      ! y-coordinate
+    surface_elements(i,3) = 0                   ! z-coordinate
+  end do 
 
   ! time of surface generation
   call cpu_time(t1)
@@ -61,6 +66,8 @@ program main
   deallocate(results)
 end program main
 
+
+! not currently called - some sort of array accessing issue is causing segfault - look into later
 subroutine generate_surface_elements(surface_elements)
   implicit none
   real, intent(out) :: surface_elements(:,:)
