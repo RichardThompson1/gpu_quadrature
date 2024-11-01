@@ -40,7 +40,7 @@ program main
   ! time of surface generation
   call cpu_time(t1)
   time_generate = t1 - t_start
-  print *, 'Time to generate surface elements:', time_generate, 'seconds.........................'
+  print *, 'Time to generate surface elements:', time_generate, 'seconds............'
 
   ! loop over time steps
   do i = 1, num_time_steps
