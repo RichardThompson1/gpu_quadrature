@@ -65,23 +65,3 @@ program main
   deallocate(surface_elements)
   deallocate(results)
 end program main
-
-
-! not currently called - some sort of array accessing issue is causing segfault - look into later
-subroutine generate_surface_elements(surface_elements)
-  implicit none
-  real, intent(out) :: surface_elements(:,:)
-  integer :: i
-  integer :: num_elements 
-  
-  num_elements = size(surface_elements, 1)
-
-  print *, 'Num elements:',num_elements
-  ! generating simple grid - might try to move to parabolic shaped surface
-  do i = 1, num_elements
-    print *, i
-    surface_elements(i,1) = real(i) * 0.01      ! x-coordinate
-    surface_elements(i,2) = real(i) * 0.01      ! y-coordinate
-    surface_elements(i,3) = 0                   ! z-coordinate
-  end do 
-end subroutine generate_surface_elements
