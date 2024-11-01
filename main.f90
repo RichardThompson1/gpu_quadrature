@@ -24,13 +24,13 @@ program main
   observer_position = [0.0, 0.0, 0.0]
 
   ! start time tracking to see execution length of steps
-  t_start = cpu_time()
+  call cpu_time(t_start)
 
   ! generate surface elements
   call generate_surface_elements(surface_elements)
 
   ! time of surface generation
-  t1 = cpu_time()
+  tcall cpu_time(t1)
   time_generate = t1 - t_start
   print *, 'Time to generate surface elements:', time_generate, 'seconds.........................'
 
@@ -40,10 +40,10 @@ program main
   end do
 
   ! record quadrature time, output first few values
-  t2 = cpu_time()
+  call cpu_time(t2)
   time_compute = t2 - t1
   print *, 'Time to cpmute quadratures:", time_compute, "seconds.........................'
-  time_total = t_2 - t_start
+  time_total = t2 - t_start
   print *, 'Total execution time:', time_total, 'seconds.........................'
 
   ! output first few results to make sure it looks as expected
@@ -60,7 +60,7 @@ subroutine generate_surface_elements(surface_elements)
   implicit none
   real, intent(out) :: surface_elements(:,:)
   integer :: i
-  integer, parameter :: num_elements = size(surface_elements, 1)
+  integer, parameter :: num_elements = size(surface_elements)
 
   ! generating simple grid - might try to move to parabolic shaped surface
   do i = 1, num_elements
