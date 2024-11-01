@@ -17,7 +17,7 @@ contains
     integer :: idx
     real :: c, pi
     real :: element_position(3), element_normal(3)
-    real :: radiation_vector(3), radiation distance, radiation_unit_vector(3)
+    real :: radiation_vector(3), radiation_distance, radiation_unit_vector(3)
     real :: ret_time, sin_theta, Q, integrand
 
     idx = threadIdx%x + (blockIdx%x - 1) * blockDim%x
@@ -59,7 +59,8 @@ contains
 
   attributes(device) function source_strength(position, time) result(Q)
     implicit none
-    real, value :: position(3), time
+    real :: position(3)
+    real, value :: time
     real :: Q
     real :: base_strength, omega, phase_shift, damping
     real :: modulation, decay
