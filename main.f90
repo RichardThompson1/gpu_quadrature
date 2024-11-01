@@ -5,7 +5,7 @@ program main
   use quadrature_module
   implicit none
 
-  integer, parameter :: num_time_steps = 1000
+  integer, parameter :: num_time_steps = 1000000
   integer, parameter :: num_elements = 1024
   integer :: i
   real :: t_start, t_end
@@ -22,7 +22,7 @@ program main
   allocate(surface_elements(num_elements,3))
   allocate(results(num_time_steps))
 
-  print *, 'Allocations complete, beginning program............................'
+  !print *, 'Allocations complete, beginning program............................'
 
   ! setting observer position - for now just 0's
   observer_position = [0.0, 0.0, 0.0]
@@ -30,11 +30,8 @@ program main
   ! start time tracking to see execution length of steps
   call cpu_time(t_start)
 
-  print *, 'Generating elements.....................'
-  flush(6)
   ! generate surface elements
   do i = 1, num_elements
-    print *, i
     surface_elements(i,1) = real(i) * 0.01      ! x-coordinate
     surface_elements(i,2) = real(i) * 0.01      ! y-coordinate
     surface_elements(i,3) = 0                   ! z-coordinate
