@@ -50,7 +50,7 @@ program main
   ! record quadrature time, output first few values
   call cpu_time(t2)
   time_compute = t2 - t1
-  print *, 'Time to cpmute quadratures:", time_compute, "seconds.........................'
+  print *, 'Time to compute quadratures:', time_compute, 'seconds..................'
   time_total = t2 - t_start
   print *, 'Total execution time:', time_total, 'seconds.........................'
 
