@@ -2,6 +2,7 @@
 
 program main
   use cudafor
+  use quadrature_module
   implicit none
 
   integer, parameter :: num_time_steps = 1000
