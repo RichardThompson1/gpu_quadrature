@@ -1,0 +1,120 @@
+
+module quadrature_module
+  use cudafor
+  implicit none
+
+
+contains
+
+
+  attributes(global) subroutine quadrature_kernel(surface_elements, observer_position, observer_time, result)
+    implicit none
+    real, device :: surface_elements(:,:)
+    real, device :: observer_position(3)
+    integer, value :: observer_time
+    real, device :: result(:)
+
+    integer :: idx
+    real :: c, pi
+    real :: element_position(3), element_normal(3)
+    real :: radiation_vector(3), radiation distance, radiation_unit_vector(3)
+    real :: ret_time, sin_theta, Q, integrand
+
+    idx = threadIdx%x + (blockIdx%x - 1) * blockDim%x
+
+    if (idx > size(result)) return
+
+    c = 340.0           ! speed of sound
+    pi = 3.1415926535
+
+    ! Get the element position (assuming normals are in positive - z)
+    element_position = surface_elements(idx,:)
+    element_normal = [0.0, 0.0, 1.0]
+
+    ! Radiation vector
+    radiation_vector = observer_position - element_position
+    radiation_distance = sqrt(sum(radiation_vector**2))
+    radiation_unit_vector = radiation_vector / radiation_distance
+
+    !retarded time
+    ret_time = observer_time - radiation_distance / c
+
+    ! sin(theta) calculation
+    sin_theta = sqrt(1.0 - (element_normal(1)*radiation_unit_vector(1) + &
+                            element_normal(2)*radiation_unit_vector(2) + &
+                            element_normal(3)*radiation_unit_vector(3))**2)
+
+    if (sin_theta == 0.0) then
+      integrand = 0.0
+    else
+      ! source strength at ret_time
+      Q = source_strength(element_position, ret_time)
+
+      ! integrand 
+      integrand = (Q/(radiation_distance *sin_theta)) * c
+    end if
+
+    result(idx) = integrand
+  end subroutine quadrature_kernel
+
+  attributes(device) function source_strength(position, time) result(Q)
+    implicit none
+    real, value :: position(3), time
+    real :: Q
+    real :: base_strength, omega, phase_shift, damping
+    real :: modulation, decay
+    real :: pi
+
+    pi = 3.1415926535
+    base_strength = 60.0
+    omega = 2.0 * pi * 440.0
+    phase_shift = 0.5 * pi
+    damping = 0.1
+
+    modulation = sin(omega * time + phase_shift)
+    decay = exp(-damping * sqrt(sum(position**2)))
+
+    Q = base_strength * modulation * decay
+  end function source_strength
+
+  subroutine quadrature_gpu(surface_elements_host, observer_position_host, observer_time, result_host)
+    use cudafor 
+    implicit none
+    real, intent(in) :: surface_elements_host(:,:)
+    real, intent(in) :: observer_position_host(3)
+    integer, intent(in) :: observer_time
+    real, intent(out) :: result_host
+
+    real, device, allocatable :: surface_elements_dev(:,:)
+    real, device :: observer_position_dev(3)
+    real, device, allocatable :: result_dev(:)
+    integer :: num_elements
+    integer :: threads_per_block, num_blocks
+
+    num_elements = size(surface_elements_host, 1)
+
+    ! device arrays
+    allocate(surface_elements_dev(num_elements, 3))
+    allocate(result_dev(num_elements))
+
+    ! send data to device
+    surface_elements_dev = surface_elements_host
+    observer_position_dev = observer_position_host
+
+    ! define kernel shape
+    threads_per_block = 256
+    num_blocks = (num_elements + threads_per_block - 1) / threads_per_block
+
+    !launch kernel
+    call quadrature_kernel<<<num_blocks, threads_per_block>>>(surface_elements_dev, observer_position_dev, observer_time, result_dev)
+
+    ! get results back
+    result_host = sum(result_dev)
+
+    ! clean-up time
+    deallocate(surface_elements_dev)
+    deallocate(result_dev)
+
+  end subroutine quadrature_gpu
+
+end module quadrature_module
