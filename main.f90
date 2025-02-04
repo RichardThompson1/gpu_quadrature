@@ -8,9 +8,9 @@ program main
   ! nt = 2^20 takes 3.05 seconds, nt = 2^30 takes 672.89 seconds (at 128x128 gridpoints)
   integer, parameter :: dp = kind(1.0d0)
 
-  integer, parameter :: nt = 2**7 
-  integer, parameter :: nx = 2**4 
-  integer, parameter :: ny = 2**4
+  integer, parameter :: nt = 2**9
+  integer, parameter :: nx = 2**14
+  integer, parameter :: ny = 2**14
   real, parameter :: square_length = 1.0
   real, parameter :: square_height = 1.0
   integer :: i, j, k
@@ -68,9 +68,9 @@ program main
   ! print *, "1th point in x_arr:", x_array()
   ! print *, "last point in x_arr:", x_array((size(x_array)))
   ! print *, "last point in x_arr:", x_array((size(x_array-1)))
-  print *, "Points in x direction: ", size(x_array)
+  ! print *, "first/last elements of time array:", t_array(1), t_array(size(t_array))
   print *, "Points in time direction: ", size(t_array)
-  print *, "Elements of result_array: ", size(result_array)
+  ! print *, "Elements of result_array: ", size(result_array)
 
 
   ! time of surface generation
@@ -88,17 +88,17 @@ program main
   print *, 'Total execution time:', time_total, 'seconds.........................'
 
   ! output first few results to make sure it looks as expected
-  print *, 'First few results:'
-  do i = 0, 9
-    print '(A, I4, A, D20.14)', 'Time step', i, ':', result_array(i)
-  end do
+  ! print *, 'First few results:'
+  ! do i = 1, 9
+  !   print '(A, I4, A, D20.14)', 'Time step', i, ':', result_array(i)
+  ! end do
 
-  print *, 'Last few results:'
-  do i = nt-10, size(result_array)-1
-    print '(A, I4, A, D20.14)', 'Time step', i, ':', result_array(i)
-  end do
+  ! print *, 'Last few results:'
+  ! do i = nt-9, size(result_array)
+  !   print '(A, I4, A, D20.14)', 'Time step', i, ':', result_array(i)
+  ! end do
   
-  do i = 0, size(result_array)-1
+  do i = 1, size(result_array)
     accumulator = accumulator + result_array(i)
     if (result_array(i) == 0.0) then
       print *, "Quadrature is 0 on step",i
@@ -113,7 +113,7 @@ program main
   print *, 'Total of all time steps:', accumulator
   print *, 'Maximum of all time steps:', maximum_quadrature
   print *, 'Minimum of all time steps:', minimum_quadrature
-  print *, 'max - min:', (maximum_quadrature - minimum_quadrature)
+  ! print *, 'max - min:', (maximum_quadrature - minimum_quadrature)
   write(*,'(A,g14.7)') 'max - min:', (maximum_quadrature - minimum_quadrature)
   
   !print *, 'Deallocating...............................'
