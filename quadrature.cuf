@@ -29,11 +29,27 @@ contains
     n = 1
     m = 1
 
-    idx_x = ((blockIdx%x * blockDim%x) + threadIdx%x)
-    idx_y = ((blockIdx%y * blockDim%y) + threadIdx%y)
+    ! blockIdx is 1 indexed, so (block offset - 1) + thread offset = location in data array
+    idx_x = (((blockIdx%x-1) * blockDim%x) + threadIdx%x)
+    idx_y = (((blockIdx%y-1) * blockDim%y) + threadIdx%y)
 
-
+    ! print *, "nx,idx_x=",nx,idx_x,"; blockidx:",blockIdx%x,"; blockdim:",blockDim%x,"; threadidx:",threadIdx%x
+    ! print *, "nx,idx_x=",nx,idx_x, "ny,idx_y=",ny,idx_y
+    ! print *, "ny,idx_y=",ny,idx_y
     if (idx_x > nx .or. idx_y > ny .or. idx_x < 0 .or. idx_y < 0) then
+      ! print *, "At (x,y): (", idx_x, ",", idx_y, ")"
+      ! if (idx_x > nx) then
+      !   print *, "A"
+      ! end if
+      ! if (idx_y > ny) then
+      !   print *, "B"
+      ! end if
+      ! if (idx_x < 0) then
+      !   print *, "C"
+      ! end if
+      ! if (idx_y < 0) then
+      !   print *, "D"
+      ! end if
       return
     end if
 
@@ -55,46 +71,9 @@ contains
     t_k = t_array_d(idx_t)
     f = sin(n * pi * x_i) * sin(m * pi * y_j)
     contribution = w_ij * f
+    ! most CUDA functions, like atomicadd, assume 0 based indexing in the underlying C implementation
     tmp = atomicadd(result_array_d(idx_t), contribution)
   end do
-
-    !below is grid-stride version of batching, but it has errors in result output
-    ! do idx_stride_x = 0, stride_x-1            ! this is the grid-stride method of looping; one thread is doing stride number of computations
-    !   do idx_stride_y = 0, stride_y-1
-    !     if ((idx_x+idx_stride_x) < nx .and. (idx_y+idx_stride_y) < ny) then
-    !       x_i = x_array_d(idx_x + idx_stride_x)
-    !       y_j = y_array_d(idx_y + idx_stride_y)
-
-    !       if ((idx_x+idx_stride_x == 0 .or. idx_x+idx_stride_x == nx-1) .and. (idx_y+idx_stride_y == 0 .or. idx_y+idx_stride_y == ny-1)) then
-    !         w_ij = 1.0
-    !       else if ((idx_x+idx_stride_x == 0 .or. idx_x+idx_stride_x == nx-1) .or. (idx_y+idx_stride_y == 0 .or. idx_y+idx_stride_y == ny-1)) then
-    !         w_ij = 2.0
-    !       else
-    !         w_ij = 4.0
-    !       end if
-    !       !if ((i_x == 0 .or. i_x == nx) .and. (i_y == 0 .or. i_y == ny)) then
-    !       !  w_ij = 1.0  ! corners
-    !       !else if ((i_x == 0 .or. i_x == nx) .or. (i_y == 0 .or. i_y == ny)) then
-    !       !  w_ij = 2.0  ! edges
-    !       !else
-    !       !  w_ij = 4.0  ! interior
-    !       !end if
-
-    !       ! loop over time steps - all x y points calculated by a given thread are calculated by 
-    !       do idx_t = 0, ntb - 1
-    !         t_k = t_array_d(idx_t)
- 
-    !         ! the actual function
-    !         f = sin(n * pi * x_i) * sin( m * pi * y_j) ! just doing x and y for now , no factor of t in calculation
-
-    !         contribution = w_ij * f
-      
-    !         ! atomic add is suggested for GPU use - need to explore documentation on it more
-    !         tmp = atomicadd(result_array_d(idx_t), contribution)
-    !       end do
-    !     end if
-    !   end do
-    ! end do 
   end subroutine quadrature_kernel
 
   subroutine quadrature_gpu(x_array, y_array, t_array, result_array, nx, ny, nt, hx, hy)
@@ -121,9 +100,8 @@ contains
     integer :: blocks_per_grid_x, blocks_per_grid_y
     integer :: nt_batch, num_batches, batch
     integer :: t_start, t_end, ntb, istat
+    ! max_blocks is not currently used, but would be good practice to set as upper bound
     integer, parameter :: max_blocks = 2**8 ! CUDA maximum for x direction is 2**31, y direction is 2**16
-    ! real :: str_x_temp, str_y_temp
-    ! integer :: stride_x, stride_y
 
     ! number of time steps per batch - 2**11 for results on 11/15
     nt_batch = min(2**12, nt)
@@ -167,13 +145,13 @@ contains
       ! should be the same as using do loop
       result_array_d(:) = 0.0
       
-      ! kernel dimensions -> 16 x 16 = 256 threads, number of blocks is grid width + 1 (to round up) + threads width -1 (to round down) / threads width
+      ! kernel dimensions -> 
       threads_per_block_x = 16
       threads_per_block_y = 16
       blocks_per_grid_x = (nx + threads_per_block_x - 1) / threads_per_block_x
       blocks_per_grid_y = (ny + threads_per_block_y - 1) / threads_per_block_y
 
-      print *, "kernel launched"
+      print *, "kernel launched: ",blocks_per_grid_x," by ",blocks_per_grid_y
       !launch kernel
       call quadrature_kernel<<<dim3(blocks_per_grid_x, blocks_per_grid_y, 1), dim3(threads_per_block_x, threads_per_block_y, 1)>>> &
           (x_array_d, y_array_d, t_array_d, result_array_d, nx, ny, ntb)
@@ -181,7 +159,7 @@ contains
       istat = cudaDeviceSynchronize()
 
       ! get results back
-      result_array(t_start:t_end) = result_array(t_start:t_end) + result_array_d(0:ntb-1)
+      result_array(t_start:t_end) = result_array(t_start:t_end) + result_array_d(:)
     end do
     
     ! scale results by hx * hy / 4 - look into moving this to kernel. Should be commutative w.r.t. results array summation
