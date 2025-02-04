@@ -7,114 +7,191 @@ module quadrature_module
 contains
 
 
-  attributes(global) subroutine quadrature_kernel(surface_elements, observer_position, observer_time, result)
+  attributes(global) subroutine quadrature_kernel(x_array_d, y_array_d, t_array_d, result_array_d, nx, ny, ntb)
     implicit none
-    real, device :: surface_elements(:,:)
-    real, device :: observer_position(3)
-    integer, value :: observer_time
-    real, device :: result(:)
+    
+    integer, parameter :: dp = kind(1.0d0)
 
-    integer :: idx
-    real :: c, pi
-    real :: element_position(3), element_normal(3)
-    real :: radiation_vector(3), radiation_distance, radiation_unit_vector(3)
-    real :: ret_time, sin_theta, Q, integrand
+    integer, value :: nx, ny, ntb
+    real, device :: x_array_d(:)
+    real, device :: y_array_d(:)
+    real, device :: t_array_d(:)
+    real(kind=dp), device :: result_array_d(:)
 
-    idx = threadIdx%x + (blockIdx%x - 1) * blockDim%x
+    integer :: idx_x, idx_y, idx_t, n, m    !n and m are scaling factors for the oscillation of our quadrature 
+    real :: x_i, y_j, t_k
+    real :: f, tmp
+    real :: pi                       
+    real :: w_ij
+    real(kind=dp) :: contribution 
 
-    if (idx > size(result)) return
+    pi = 4*atan(1.)
+    n = 1
+    m = 1
 
-    c = 340.0           ! speed of sound
-    pi = 3.1415926535
+    idx_x = ((blockIdx%x * blockDim%x) + threadIdx%x)
+    idx_y = ((blockIdx%y * blockDim%y) + threadIdx%y)
 
-    ! Get the element position (assuming normals are in positive - z)
-    element_position = surface_elements(idx,:)
-    element_normal = [0.0, 0.0, 1.0]
 
-    ! Radiation vector
-    radiation_vector = observer_position - element_position
-    radiation_distance = sqrt(sum(radiation_vector**2))
-    radiation_unit_vector = radiation_vector / radiation_distance
-
-    !retarded time
-    ret_time = observer_time - radiation_distance / c
-
-    ! sin(theta) calculation
-    sin_theta = sqrt(1.0 - (element_normal(1)*radiation_unit_vector(1) + &
-                            element_normal(2)*radiation_unit_vector(2) + &
-                            element_normal(3)*radiation_unit_vector(3))**2)
-
-    if (sin_theta == 0.0) then
-      integrand = 0.0
-    else
-      ! source strength at ret_time
-      Q = source_strength(element_position, ret_time)
-
-      ! integrand 
-      integrand = (Q/(radiation_distance *sin_theta)) * c
+    if (idx_x > nx .or. idx_y > ny .or. idx_x < 0 .or. idx_y < 0) then
+      return
     end if
 
-    result(idx) = integrand
+     
+  x_i = x_array_d(idx_x)
+  y_j = y_array_d(idx_y)
+  
+  ! Compute weights using boundary checks:
+  if ((idx_x == 1 .or. idx_x == nx) .and. (idx_y == 1 .or. idx_y == ny)) then
+    w_ij = 1.0
+  else if ((idx_x == 1 .or. idx_x == nx) .or. (idx_y == 1 .or. idx_y == ny)) then
+    w_ij = 2.0
+  else
+    w_ij = 4.0
+  end if
+  
+  ! Loop over the current batch of time steps
+  do idx_t = 1, ntb
+    t_k = t_array_d(idx_t)
+    f = sin(n * pi * x_i) * sin(m * pi * y_j)
+    contribution = w_ij * f
+    tmp = atomicadd(result_array_d(idx_t), contribution)
+  end do
+
+    !below is grid-stride version of batching, but it has errors in result output
+    ! do idx_stride_x = 0, stride_x-1            ! this is the grid-stride method of looping; one thread is doing stride number of computations
+    !   do idx_stride_y = 0, stride_y-1
+    !     if ((idx_x+idx_stride_x) < nx .and. (idx_y+idx_stride_y) < ny) then
+    !       x_i = x_array_d(idx_x + idx_stride_x)
+    !       y_j = y_array_d(idx_y + idx_stride_y)
+
+    !       if ((idx_x+idx_stride_x == 0 .or. idx_x+idx_stride_x == nx-1) .and. (idx_y+idx_stride_y == 0 .or. idx_y+idx_stride_y == ny-1)) then
+    !         w_ij = 1.0
+    !       else if ((idx_x+idx_stride_x == 0 .or. idx_x+idx_stride_x == nx-1) .or. (idx_y+idx_stride_y == 0 .or. idx_y+idx_stride_y == ny-1)) then
+    !         w_ij = 2.0
+    !       else
+    !         w_ij = 4.0
+    !       end if
+    !       !if ((i_x == 0 .or. i_x == nx) .and. (i_y == 0 .or. i_y == ny)) then
+    !       !  w_ij = 1.0  ! corners
+    !       !else if ((i_x == 0 .or. i_x == nx) .or. (i_y == 0 .or. i_y == ny)) then
+    !       !  w_ij = 2.0  ! edges
+    !       !else
+    !       !  w_ij = 4.0  ! interior
+    !       !end if
+
+    !       ! loop over time steps - all x y points calculated by a given thread are calculated by 
+    !       do idx_t = 0, ntb - 1
+    !         t_k = t_array_d(idx_t)
+ 
+    !         ! the actual function
+    !         f = sin(n * pi * x_i) * sin( m * pi * y_j) ! just doing x and y for now , no factor of t in calculation
+
+    !         contribution = w_ij * f
+      
+    !         ! atomic add is suggested for GPU use - need to explore documentation on it more
+    !         tmp = atomicadd(result_array_d(idx_t), contribution)
+    !       end do
+    !     end if
+    !   end do
+    ! end do 
   end subroutine quadrature_kernel
 
-  attributes(device) function source_strength(position, time) result(Q)
-    implicit none
-    real :: position(3)
-    real, value :: time
-    real :: Q
-    real :: base_strength, omega, phase_shift, damping
-    real :: modulation, decay
-    real :: pi
-
-    pi = 3.1415926535
-    base_strength = 60.0
-    omega = 2.0 * pi * 440.0
-    phase_shift = 0.5 * pi
-    damping = 0.1
-
-    modulation = sin(omega * time + phase_shift)
-    decay = exp(-damping * sqrt(sum(position**2)))
-
-    Q = base_strength * modulation * decay
-  end function source_strength
-
-  subroutine quadrature_gpu(surface_elements_host, observer_position_host, observer_time, result_host)
+  subroutine quadrature_gpu(x_array, y_array, t_array, result_array, nx, ny, nt, hx, hy)
     use cudafor 
+
     implicit none
-    real, intent(in) :: surface_elements_host(:,:)
-    real, intent(in) :: observer_position_host(3)
-    integer, intent(in) :: observer_time
-    real, intent(out) :: result_host
 
-    real, device, allocatable :: surface_elements_dev(:,:)
-    real, device :: observer_position_dev(3)
-    real, device, allocatable :: result_dev(:)
-    integer :: num_elements
-    integer :: threads_per_block, num_blocks
+    integer, parameter :: dp = kind(1.0d0)
+    real, intent(in) :: x_array(:)
+    real, intent(in) :: y_array(:)
+    real, intent(in) :: t_array(:)
+    real(kind=dp), intent(in) :: hx, hy
+    integer, intent(in) :: nx, ny, nt
+    real(kind=dp), intent(out) :: result_array(:)
+    
+    ! device side arrays
+    real, device, allocatable :: x_array_d(:)
+    real, device, allocatable :: y_array_d(:)
+    real, device, allocatable :: t_array_d(:)
+    real(kind=dp), device, allocatable :: result_array_d(:)
 
-    num_elements = size(surface_elements_host, 1)
+    ! indexing variables
+    integer :: threads_per_block_x, threads_per_block_y
+    integer :: blocks_per_grid_x, blocks_per_grid_y
+    integer :: nt_batch, num_batches, batch
+    integer :: t_start, t_end, ntb, istat
+    integer, parameter :: max_blocks = 2**8 ! CUDA maximum for x direction is 2**31, y direction is 2**16
+    ! real :: str_x_temp, str_y_temp
+    ! integer :: stride_x, stride_y
+
+    ! number of time steps per batch - 2**11 for results on 11/15
+    nt_batch = min(2**12, nt)
 
     ! device arrays
-    allocate(surface_elements_dev(num_elements, 3))
-    allocate(result_dev(num_elements))
+    allocate(x_array_d(nx))
+    allocate(y_array_d(ny))
+    allocate(t_array_d(nt_batch))
+    allocate(result_array_d(nt_batch))
+
 
     ! send data to device
-    surface_elements_dev = surface_elements_host
-    observer_position_dev = observer_position_host
+    x_array_d = x_array
+    y_array_d = y_array
 
-    ! define kernel shape
-    threads_per_block = 256
-    num_blocks = (num_elements + threads_per_block - 1) / threads_per_block
+    ! number of batches is ceiling((num_timeSteps)/batch_size) 
+    num_batches = ceiling( real(nt) / real(nt_batch))
+    print *, num_batches
 
-    !launch kernel
-    call quadrature_kernel<<<num_blocks, threads_per_block>>>(surface_elements_dev, observer_position_dev, observer_time, result_dev)
+    do batch = 1, num_batches
 
-    ! get results back
-    result_host = sum(result_dev)
+      ! batch starting bound - (batch-1) to calculate start index of batch rather than end index
+      t_start = (batch - 1) * nt_batch + 1
+      if (t_start > nt) exit       ! Exit if t_start is out of bounds
+      ! batch ending bound
+      t_end = min((batch * nt_batch), nt)
+
+      ! number of time_steps in batch
+      ntb = t_end - t_start + 1
+      ! print *, "start: ",t_start
+      ! print *, "end: ",t_end
+      ! print *, "ntb: ",ntb
+
+      ! if (batch == (num_batches)) then
+      !   print *, "end: ",t_end
+      ! end if
+
+      ! move chunk of timesteps to device - need to check this is async
+      t_array_d(:) = t_array(t_start:t_end)
+
+      ! should be the same as using do loop
+      result_array_d(:) = 0.0
+      
+      ! kernel dimensions -> 16 x 16 = 256 threads, number of blocks is grid width + 1 (to round up) + threads width -1 (to round down) / threads width
+      threads_per_block_x = 16
+      threads_per_block_y = 16
+      blocks_per_grid_x = (nx + threads_per_block_x - 1) / threads_per_block_x
+      blocks_per_grid_y = (ny + threads_per_block_y - 1) / threads_per_block_y
+
+      print *, "kernel launched"
+      !launch kernel
+      call quadrature_kernel<<<dim3(blocks_per_grid_x, blocks_per_grid_y, 1), dim3(threads_per_block_x, threads_per_block_y, 1)>>> &
+          (x_array_d, y_array_d, t_array_d, result_array_d, nx, ny, ntb)
+          
+      istat = cudaDeviceSynchronize()
+
+      ! get results back
+      result_array(t_start:t_end) = result_array(t_start:t_end) + result_array_d(0:ntb-1)
+    end do
+    
+    ! scale results by hx * hy / 4 - look into moving this to kernel. Should be commutative w.r.t. results array summation
+    result_array = result_array * (hx * hy / 4.0)
 
     ! clean-up time
-    deallocate(surface_elements_dev)
-    deallocate(result_dev)
+    deallocate(x_array_d)
+    deallocate(y_array_d)
+    deallocate(t_array_d)
+    deallocate(result_array_d)
 
   end subroutine quadrature_gpu
 
