@@ -1,51 +1,84 @@
-! attempting quadratures over the GPU
+
 
 program main
   use cudafor
   use quadrature_module
   implicit none
 
-  integer, parameter :: num_time_steps = 1000000
-  integer, parameter :: num_elements = 1024
-  integer :: i
-  real :: t_start, t_end
-  real, allocatable :: surface_elements(:,:)
-  real :: observer_position(3)
-  real, allocatable :: results(:)
-  real :: total_time
+  ! nt = 2^20 takes 3.05 seconds, nt = 2^30 takes 672.89 seconds (at 128x128 gridpoints)
+  integer, parameter :: dp = kind(1.0d0)
+
+  integer, parameter :: nt = 2**7 
+  integer, parameter :: nx = 2**4 
+  integer, parameter :: ny = 2**4
+  real, parameter :: square_length = 1.0
+  real, parameter :: square_height = 1.0
+  integer :: i, j, k
+  real(kind=dp) :: hx, hy
+  real :: pi
+  real :: accumulator = 0.0
+  real :: minimum_quadrature = 2**10
+  real :: maximum_quadrature = 0.0
+
+  ! x, y, and time position of grid point
+  real, allocatable :: x_array(:), y_array(:), t_array(:)
+
+  !results are per time step
+  real(kind=dp), allocatable :: result_array(:)
 
   ! timing variables
   real :: time_generate, time_compute, time_total
-  real :: t1, t2
+  real :: t1, t2, t_start, t_end
 
-  ! allocate arrays for the input of points
-  allocate(surface_elements(num_elements,3))
-  allocate(results(num_time_steps))
+  ! allocate arrays for the input of points x = nx+1 and y = ny + 1 for correct corner/edge points
+  allocate(x_array(nx))
+  allocate(y_array(ny))
+  allocate(t_array(nt))
+  allocate(result_array(nt))
+
+
+  ! distance between grid points
+  hx = square_height / (nx)           !nx-1 is the number of segments, nx is number of points
+  hy = square_length / (ny)           !ny-1 is the number of segments, ny is number of points
+
 
   !print *, 'Allocations complete, beginning program............................'
-
-  ! setting observer position - for now just 0's
-  observer_position = [0.0, 0.0, 0.0]
 
   ! start time tracking to see execution length of steps
   call cpu_time(t_start)
 
-  ! generate surface elements
-  do i = 1, num_elements
-    surface_elements(i,1) = real(i) * 0.01      ! x-coordinate
-    surface_elements(i,2) = real(i) * 0.01      ! y-coordinate
-    surface_elements(i,3) = 0                   ! z-coordinate
-  end do 
+  ! x, y, and time points calculation - also initialize results array to 0.0 
+  do i = 1, nx
+    x_array(i) = i * hx
+  end do
+  do j = 1, ny
+    y_array(j) = j * hy
+  end do
+  do k = 1, nt
+    t_array(k) = k
+    result_array(k) = 0.0
+  end do
+
+  
+  print *, "Points in x direction: ", size(x_array)
+  print *, "Points in y direction: ", size(y_array)
+  ! do i = 1, size(x_array)
+  !   print *, x_array(i)
+  ! end do
+  ! print *, "1th point in x_arr:", x_array()
+  ! print *, "last point in x_arr:", x_array((size(x_array)))
+  ! print *, "last point in x_arr:", x_array((size(x_array-1)))
+  print *, "Points in x direction: ", size(x_array)
+  print *, "Points in time direction: ", size(t_array)
+  print *, "Elements of result_array: ", size(result_array)
+
 
   ! time of surface generation
   call cpu_time(t1)
   time_generate = t1 - t_start
   print *, 'Time to generate surface elements:', time_generate, 'seconds............'
 
-  ! loop over time steps
-  do i = 1, num_time_steps
-    call quadrature_gpu(surface_elements, observer_position, i, results(i))
-  end do
+  call quadrature_gpu(x_array, y_array, t_array, result_array, nx, ny, nt, hx, hy)
 
   ! record quadrature time, output first few values
   call cpu_time(t2)
@@ -56,10 +89,37 @@ program main
 
   ! output first few results to make sure it looks as expected
   print *, 'First few results:'
-  do i = 1, 10
-    print *, 'Time step', i, ':', results(i)
+  do i = 0, 9
+    print '(A, I4, A, D20.14)', 'Time step', i, ':', result_array(i)
   end do
 
-  deallocate(surface_elements)
-  deallocate(results)
+  print *, 'Last few results:'
+  do i = nt-10, size(result_array)-1
+    print '(A, I4, A, D20.14)', 'Time step', i, ':', result_array(i)
+  end do
+  
+  do i = 0, size(result_array)-1
+    accumulator = accumulator + result_array(i)
+    if (result_array(i) == 0.0) then
+      print *, "Quadrature is 0 on step",i
+    end if
+    if (result_array(i) < minimum_quadrature .and. result_array(i) /= 0) then
+      minimum_quadrature = result_array(i)
+    end if
+    if (result_array(i) > maximum_quadrature) then
+      maximum_quadrature = result_array(i)
+    end if
+  end do
+  print *, 'Total of all time steps:', accumulator
+  print *, 'Maximum of all time steps:', maximum_quadrature
+  print *, 'Minimum of all time steps:', minimum_quadrature
+  print *, 'max - min:', (maximum_quadrature - minimum_quadrature)
+  write(*,'(A,g14.7)') 'max - min:', (maximum_quadrature - minimum_quadrature)
+  
+  !print *, 'Deallocating...............................'
+  
+  !deallocate(x_array)
+  !deallocate(y_array)
+  !deallocate(t_array)
+  !deallocate(result_array)
 end program main
