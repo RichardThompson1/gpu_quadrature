@@ -15,7 +15,7 @@ include_directories("/opt/nvidia/hpc_sdk/Linux_x86_64/24.5/cuda/12.4/targets/x86
 set_source_files_properties(quadrature.cuf PROPERTIES LANGUAGE Fortran)
 
 #add_executable(get_gpu_info get_gpu_info.f90)
-add_executable(gpu_quadrature main.f90 quadrature.cuf)
+add_executable(gpu_quadrature main.f90 quadrature.cuf cpu_quadrature.f90)
 
 # Attempt to find CUDA runtime library
 find_library(CUDART_LIBRARY NAMES cudart HINTS ${CUDA_LIB_DIR})
