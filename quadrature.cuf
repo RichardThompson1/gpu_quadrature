@@ -26,8 +26,6 @@ contains
     real(kind=dp) :: contribution 
 
     pi = 4*atan(1.)
-    n = 1
-    m = 1
 
     ! blockIdx is 1 indexed, so (block offset - 1) + thread offset = location in data array
     idx_x = (((blockIdx%x-1) * blockDim%x) + threadIdx%x)
@@ -103,7 +101,9 @@ contains
 
     ! number of batches is ceiling((num_timeSteps)/batch_size) 
     num_batches = ceiling( real(nt) / real(nt_batch))
-    print *, num_batches
+
+    !for troubleshooting
+    ! print *, num_batches
 
     do batch = 1, num_batches
 
@@ -128,7 +128,8 @@ contains
       blocks_per_grid_x = (nx + threads_per_block_x - 1) / threads_per_block_x
       blocks_per_grid_y = (ny + threads_per_block_y - 1) / threads_per_block_y
 
-      print *, "kernel launched: ",blocks_per_grid_x," by ",blocks_per_grid_y
+      ! kernel dimensions for dev use
+      ! print *, "kernel launched: ",blocks_per_grid_x," by ",blocks_per_grid_y
       !launch kernel
       call quadrature_kernel<<<dim3(blocks_per_grid_x, blocks_per_grid_y, 1), dim3(threads_per_block_x, threads_per_block_y, 1)>>> &
           (x_array_d, y_array_d, t_array_d, result_array_d, nx, ny, ntb, n, m)
