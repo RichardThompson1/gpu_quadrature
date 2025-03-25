@@ -215,6 +215,6 @@ program main
       error_cpu_serial = 0.0
   endif
 
-  call save_run_info("result_run_no_serial.csv", nx, ny, nt, n, m, time_gpu, time_cpu_serial, time_cpu_parallel, error_gpu, error_cpu_serial, error_cpu_parallel)
+  call save_run_info("result_run_convergence_test.csv", nx, ny, nt, n, m, time_gpu, time_cpu_serial, time_cpu_parallel, error_gpu, error_cpu_serial, error_cpu_parallel)
 
 end program main

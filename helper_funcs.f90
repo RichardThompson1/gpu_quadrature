@@ -32,7 +32,7 @@ module helper_module
         logical, intent(out) :: do_serial
       
         ! manually set whether or not to do serial execution this run - allows programmer to skip serial if it is too slow.
-        do_serial = .false.
+        do_serial = .true.
       
         ! Initialize default values
         nt = 2**8

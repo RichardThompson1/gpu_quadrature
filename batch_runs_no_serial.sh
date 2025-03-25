@@ -42,4 +42,4 @@ SECONDS=0
 echo "This batch of runs took $SECONDS seconds to run."
 
 
-# Script run with 2**32 2**32 2**38 2**38 2**42 2**42 = 2**45.088 additions took  seconds
+# Script run with 6(2**32)+6(2**38)+6(2**42) = 2**45.94 additions took 65798 seconds
