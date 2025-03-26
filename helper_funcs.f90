@@ -1,7 +1,73 @@
 module helper_module
     implicit none
     
+    ! sub arrays are treated as (x,y) points
+    type :: Point
+      real :: x
+      real :: y
+    end type
+
+    ! each timestep has nx*ny x,y points
+    type :: TimeStep
+      type(Point), allocatable :: points(:)
+    end type
+  
     contains
+
+    subroutine generate_patch(nt, nx, ny, hx, hy, time_array)
+      implicit none
+      
+      integer, parameter :: dp = kind(1.0d0)
+
+      type(TimeStep), allocatable, intent(out) :: time_array(:)
+      real(kind=dp), allocatable :: origin(:)
+      integer, intent(in) :: nt, nx, ny
+      real(kind=dp), intent(in) :: hx, hy
+      integer :: t, i, j, idx, nPoints
+
+      real :: theta, cos_theta, sin_theta
+      real(kind=dp) :: x_local, y_local
+
+      
+      ! Total number of points in the flattened grid
+      nPoints = nx * ny
+
+      !increase to 3 if we move to 3D
+      allocate(origin(2))
+      allocate(time_array(nt))
+
+      ! point the patch rotates around -  hard coded to (-3.2,-2.3)
+      origin(1) = -3.2
+      origin(2) = -2.3
+
+      !$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(t,i,j,theta,cos_theta)
+      do t = 1, nt
+        
+        ! rotation angle for this timestep 
+        theta = 2.0 * 4*atan(1.) * t / nt
+        cos_theta = cos(theta)
+        sin_theta = sin(theta)
+
+        allocate(time_array(t)%points(nPoints))
+    
+        ! Loop over the 2D grid and compute the rotated coordinates.
+        do j = 1, ny
+          do i = 1, nx
+            ! this line maps (i,j) to a 1D index - this is the flattening.
+            idx = (j - 1) * nx + i  
+
+            ! Compute the original coordinates relative to the origin.
+            x_local = (i * hx) - origin(1)
+            y_local = (j * hy) - origin(2)
+
+            ! Apply the rotation transformation.
+            time_array(t)%points(idx)%x = x_local * cos_theta - y_local * sin_theta + origin(1)
+            time_array(t)%points(idx)%y = x_local * sin_theta + y_local * cos_theta + origin(2)
+          end do
+        end do
+      end do
+    !$OMP END PARALLEL DO
+    end subroutine
   
     subroutine analytical_solution(n, m, integral_value)
 
@@ -35,7 +101,7 @@ module helper_module
         do_serial = .true.
       
         ! Initialize default values
-        nt = 2**8
+        nt = 2**4
         nx = 2**10
         ny = 2**10
         n  = 1
