@@ -17,6 +17,8 @@ set_source_files_properties(quadrature.cuf PROPERTIES LANGUAGE Fortran)
 #add_executable(get_gpu_info get_gpu_info.f90)
 add_executable(gpu_quadrature main.f90 quadrature.cuf cpu_quadrature.f90 helper_funcs.f90)
 
+set_target_properties(gpu_quadrature PROPERTIES Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/mod)
+
 # Attempt to find CUDA runtime library
 find_library(CUDART_LIBRARY NAMES cudart HINTS ${CUDA_LIB_DIR})
 message(STATUS "CUDART_LIBRARY found at ${CUDART_LIBRARY}")
