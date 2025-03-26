@@ -1,17 +1,27 @@
 module helper_module
     implicit none
     
-    ! sub arrays are treated as (x,y) points
+    !AoS version:
+    ! (x,y) points
     type :: Point
       real :: x
       real :: y
     end type
-
-    ! each timestep has nx*ny x,y points
-    type :: TimeStep
+    ! timestep array of points
+    type :: TimeStep_AoS
       type(Point), allocatable :: points(:)
     end type
-  
+
+    !SoA version:
+    ! sub arrays are of length nx or ny
+    type :: SubArray
+      real, allocatable :: data(:)
+    end type
+    ! each timestep has nx*ny x,y points
+    type :: TimeStep_SoA
+      type(SubArray), allocatable :: points(:)
+    end type
+
     contains
 
     subroutine generate_patch(nt, nx, ny, hx, hy, time_array)
@@ -19,7 +29,8 @@ module helper_module
       
       integer, parameter :: dp = kind(1.0d0)
 
-      type(TimeStep), allocatable, intent(out) :: time_array(:)
+      !type(TimeStep_AoS), allocatable, intent(out) :: time_array(:)
+      real, allocatable, intent(out) :: time_array(:,:,:)
       real(kind=dp), allocatable :: origin(:)
       integer, intent(in) :: nt, nx, ny
       real(kind=dp), intent(in) :: hx, hy
@@ -34,7 +45,7 @@ module helper_module
 
       !increase to 3 if we move to 3D
       allocate(origin(2))
-      allocate(time_array(nt))
+      allocate(time_array(nt,(nx*ny),2))
 
       ! point the patch rotates around -  hard coded to (-3.2,-2.3)
       origin(1) = -3.2
@@ -48,8 +59,6 @@ module helper_module
         cos_theta = cos(theta)
         sin_theta = sin(theta)
 
-        allocate(time_array(t)%points(nPoints))
-    
         ! Loop over the 2D grid and compute the rotated coordinates.
         do j = 1, ny
           do i = 1, nx
@@ -61,12 +70,12 @@ module helper_module
             y_local = (j * hy) - origin(2)
 
             ! Apply the rotation transformation.
-            time_array(t)%points(idx)%x = x_local * cos_theta - y_local * sin_theta + origin(1)
-            time_array(t)%points(idx)%y = x_local * sin_theta + y_local * cos_theta + origin(2)
+            time_array(t,idx,1) = x_local * cos_theta - y_local * sin_theta + origin(1)
+            time_array(t,idx,2) = y_local * sin_theta + y_local * cos_theta + origin(2)
           end do
         end do
       end do
-    !$OMP END PARALLEL DO
+      !$OMP END PARALLEL DO
     end subroutine
   
     subroutine analytical_solution(n, m, integral_value)
@@ -88,7 +97,7 @@ module helper_module
       print *, "Integral value: ", integral_value
     end subroutine
 
-    subroutine set_parameters(nx, ny, nt, n, m, do_serial)
+    subroutine set_parameters(nx, ny, nt, n, m, do_serial, observer)
         implicit none
       
         integer :: num_args, i, ios
@@ -96,9 +105,14 @@ module helper_module
         integer, intent(out) :: nx, ny, nt, n, m
         logical :: nx_set, ny_set, nt_set, n_set, m_set
         logical, intent(out) :: do_serial
+        real, allocatable, intent(out) :: observer(:)
       
         ! manually set whether or not to do serial execution this run - allows programmer to skip serial if it is too slow.
         do_serial = .true.
+
+        allocate(observer(2))
+        observer(1) = 3.0
+        observer(2) = 3.0
       
         ! Initialize default values
         nt = 2**4
