@@ -1,80 +1,95 @@
 
 module quadrature_module
   use cudafor
-  implicit none
+  use helper_module
 
+  implicit none
 
 contains
 
 
-  attributes(global) subroutine quadrature_kernel(x_array_d, y_array_d, t_array_d, result_array_d, nx, ny, ntb, n, m)
+  attributes(global) subroutine quadrature_kernel(patch_array_d, result_array_d, nx, ny, nt, n, m, x_obs, y_obs)
     implicit none
     
     integer, parameter :: dp = kind(1.0d0)
 
-    integer, value :: nx, ny, ntb, n, m !n and m are scaling factors for the oscillation of our quadrature 
-    real, device :: x_array_d(:)
-    real, device :: y_array_d(:)
-    real, device :: t_array_d(:)
+    integer, value :: nx, ny, nt, n, m !n and m are scaling factors for the oscillation of our quadrature 
+    real, value :: x_obs, y_obs
+    ! real, device :: x_array_d(:)
+    ! real, device :: y_array_d(:)
+    ! real, device :: t_array_d(:)
+    !type(TimeStep_AoS), device :: patch_array_d(:)
+    ! real, device :: patch_array_d(nt,(nx*ny),2)
+    real, device :: patch_array_d(:,:,:)
     real(kind=dp), device :: result_array_d(:)
 
     integer :: idx_x, idx_y, idx_t   
+    real :: x_val, y_val
     real :: x_i, y_j, t_k
-    real :: f, tmp
+    real :: f, tmp, r
     real :: pi                       
     real :: w_ij
     real(kind=dp) :: contribution 
 
     pi = 4*atan(1.)
+    
+    ! x-dim maps to points, y dim maps to timesteps
+    idx_x = (blockIdx%x - 1)*blockDim%x + threadIdx%x
+    idx_t = (blockIdx%y - 1)*blockDim%y + threadIdx%y
 
-    ! blockIdx is 1 indexed, so (block offset - 1) + thread offset = location in data array
-    idx_x = (((blockIdx%x-1) * blockDim%x) + threadIdx%x)
-    idx_y = (((blockIdx%y-1) * blockDim%y) + threadIdx%y)
+    if (idx_x < 1 .or. idx_x > nx*ny) return
+    if (idx_y < 1 .or. idx_y > nt) return
 
-    if (idx_x > nx .or. idx_y > ny .or. idx_x < 0 .or. idx_y < 0) then
-      return
+    x_val = patch_array_d(idx_t,idx_x,1)
+    y_val = patch_array_d(idx_t,idx_x,2)
+
+    r = sqrt( (x_val - x_obs)**2 + (y_val - y_obs)**2 )
+    
+    ! Boundary-based weight
+    if ((idx_x == 1 .or. MOD(idx_x,nx) == 0) .and. (idx_y == 1 .or. MOD(idx_y,ny) == 0)) then
+      w_ij = 1.0
+    else if ((idx_x == 1 .or. MOD(idx_x,nx) == 0) .or. (idx_y == 1 .or. MOD(idx_y,ny) == 0)) then
+      w_ij = 2.0
+    else
+      w_ij = 4.0
     end if
 
-     
-  x_i = x_array_d(idx_x)
-  y_j = y_array_d(idx_y)
-  
-  ! Compute weights using boundary checks:
-  if ((idx_x == 1 .or. idx_x == nx) .and. (idx_y == 1 .or. idx_y == ny)) then
-    w_ij = 1.0
-  else if ((idx_x == 1 .or. idx_x == nx) .or. (idx_y == 1 .or. idx_y == ny)) then
-    w_ij = 2.0
-  else
-    w_ij = 4.0
-  end if
-  
-  ! Loop over the current batch of time steps
-  do idx_t = 1, ntb
-    t_k = t_array_d(idx_t)
-    f = sin(n * pi * x_i) * sin(m * pi * y_j)
-    contribution = w_ij * f
+    ! Evaluate integrand
+    f = (sin(n*pi*x_val)/r) * (sin(m*pi*y_val)/r)
     tmp = atomicadd(result_array_d(idx_t), contribution)
-  end do
   end subroutine quadrature_kernel
 
-  subroutine quadrature_gpu(x_array, y_array, t_array, result_array, nx, ny, nt, hx, hy, n, m)
+  subroutine quadrature_gpu(patch_array, result_array, nx, ny, nt, hx, hy, n, m, observer)
     use cudafor 
 
     implicit none
 
     integer, parameter :: dp = kind(1.0d0)
-    real, intent(in) :: x_array(:)
-    real, intent(in) :: y_array(:)
-    real, intent(in) :: t_array(:)
+    ! real, intent(in) :: x_array(:)
+    ! real, intent(in) :: y_array(:)
+    ! real, intent(in) :: t_array(:)
+    
+    ! integer(c_intptr_t) :: nbytes
+    ! integer :: t, ierror
+
+    ! patch_array must be of size nt*(nx*ny)
+    ! type(TimeStep_AoS), intent(in) :: patch_array(:)
+    real, intent(in) :: patch_array(:,:,:)
+    real :: observer(:)
     real(kind=dp), intent(in) :: hx, hy
     integer, intent(in) :: nx, ny, nt
     integer, intent(in) :: n, m
+    integer :: t, i
+    real :: x_obs, y_obs
     real(kind=dp), intent(out) :: result_array(:)
     
     ! device side arrays
-    real, device, allocatable :: x_array_d(:)
-    real, device, allocatable :: y_array_d(:)
-    real, device, allocatable :: t_array_d(:)
+    ! real, device, allocatable :: x_array_d(:)
+    ! real, device, allocatable :: y_array_d(:)
+    ! real, device, allocatable :: t_array_d(:)
+    ! type(TimeStep_AoS), device, allocatable :: patch_array_d(:)
+
+    real, device, allocatable :: patch_array_d(:,:,:)
     real(kind=dp), device, allocatable :: result_array_d(:)
 
     ! indexing variables
@@ -84,70 +99,119 @@ contains
     integer :: t_start, t_end, ntb, istat
     ! max_blocks is not currently used, but would be good practice to set as upper bound
     integer, parameter :: max_blocks = 2**8 ! CUDA maximum for x direction is 2**31, y direction is 2**16
+    x_obs = observer(1)
+    y_obs = observer(2)
 
-    ! number of time steps per batch - 2**11 for results on 11/15
-    nt_batch = min(2**12, nt)
+    ! ! number of time steps per batch - 2**11 for results on 11/15
+    ! nt_batch = min(2**12, nt)
+    ! ! number of batches is ceiling((num_timeSteps)/batch_size) 
+    ! num_batches = ceiling( real(nt) / real(nt_batch))
 
+    !TODO: TEST IF THIS IS EFFICIENT; EACH DIMENSION IS MAPPED TO THE KERNEL.
     ! device arrays
-    allocate(x_array_d(nx))
-    allocate(y_array_d(ny))
-    allocate(t_array_d(nt_batch))
-    allocate(result_array_d(nt_batch))
+    ! allocate(x_array_d(nx))
+    ! allocate(y_array_d(ny))
+    ! allocate(t_array_d(nt_batch))
+    allocate(patch_array_d(nt,(nx*ny),2))
+    allocate(result_array_d(nt))
+    print *, "DEVICE ARRAYS ALLOCATED. TRANSFERRING DATA NOW................."
 
+    !sends monolithic array to device
+    patch_array_d = patch_array
+    ! do t = 1, nt
+    !   ! For each timestep, allocate the device points array and copy the host data.
+    !   !we have to do this because the array consists of derived types.
+    !   ! we should probably treat each timestep as a batch since we have to loop over timesteps anyways.
+    !   allocate(patch_array_d(t)%points(nx*ny))
+    !   !known limitation of nvfortran: cannot copy over an array of derived types, have to manually deep copy or restructure.
+    !   !First attempt: can't copy array of derived types
+    !   ! patch_array_d(t)%points = patch_array(t)%points
+    !   !second attempt: can't create deep copy like this from device side
+    !   ! do i = 1, nx*ny
+    !   !   patch_array_d(t)%points(i)%x = patch_array(t)%points(i)%x
+    !   !   patch_array_d(t)%points(i)%y = patch_array(t)%points(i)%y
+    !   ! end do
+    !   !third attempt: also can't copy array of derived types this way
+    !   ! i = nx*ny
+    !   ! patch_array_d(t)%points(1:i) = patch_array(t)%points(1:i)
+    !   !fourth attempt: "Could not resolve procedure" - we will need to copy raw byte data
+    !   ! i = cudaMemcpy2D(patch_array_d(t)%points, patch_array(t)%points, &
+    !   !     nx*ny*sizeof(Point))
+
+    !   nbytes = (nx*ny) * 2 * 4 !number of bytes for each timestep
+    !   print *, "CALLING MEMCPY FOR ITERATION: ", t, "..............."
+    !   call cudaMemcpy( c_loc(patch_array_d(t)%points(1)), &
+    !       c_loc(patch_array(t)%points(1)),    &
+    !       nbytes)
+    ! end do
+    
+    print *, "COPY COMPLETE.........................."
+    result_array_d(:) = 0.0
 
     ! send data to device
-    x_array_d = x_array
-    y_array_d = y_array
+    ! x_array_d = x_array
+    ! y_array_d = y_array
 
-    ! number of batches is ceiling((num_timeSteps)/batch_size) 
-    num_batches = ceiling( real(nt) / real(nt_batch))
+    ! ! number of batches is ceiling((num_timeSteps)/batch_size) 
+    ! num_batches = ceiling( real(nt) / real(nt_batch))
+    num_batches = 1
+    blocks_per_grid_x = nx
+    blocks_per_grid_y = nt
+    threads_per_block_x = ny
+    threads_per_block_y = 1
+
+    print *, "ENTERING KERNEL LOOP..............................."
+    flush(6)
+
 
     !for troubleshooting
     ! print *, num_batches
 
     do batch = 1, num_batches
 
-      ! batch starting bound - (batch-1) to calculate start index of batch rather than end index
-      t_start = (batch - 1) * nt_batch + 1
-      if (t_start > nt) exit       ! Exit if t_start is out of bounds
-      ! batch ending bound
-      t_end = min((batch * nt_batch), nt)
+      ! ! batch starting bound - (batch-1) to calculate start index of batch rather than end index
+      ! t_start = (batch - 1) * nt_batch + 1
+      ! if (t_start > nt) exit       ! Exit if t_start is out of bounds
+      ! ! batch ending bound
+      ! t_end = min((batch * nt_batch), nt)
 
-      ! number of time_steps in batch
-      ntb = t_end - t_start + 1
+      ! ! number of time_steps in batch
+      ! ntb = t_end - t_start + 1
 
-      ! move chunk of timesteps to device - need to check this is async
-      t_array_d(:) = t_array(t_start:t_end)
-
-      ! should be the same as using do loop
-      result_array_d(:) = 0.0
+      ! ! move chunk of timesteps to device - need to check this is async
+      ! t_array_d(:) = t_array(t_start:t_end)
       
       ! kernel dimensions -> 
-      threads_per_block_x = 16
-      threads_per_block_y = 16
-      blocks_per_grid_x = (nx + threads_per_block_x - 1) / threads_per_block_x
-      blocks_per_grid_y = (ny + threads_per_block_y - 1) / threads_per_block_y
+      ! threads_per_block_x = 16
+      ! threads_per_block_y = 16
+      ! blocks_per_grid_x = (nx + threads_per_block_x - 1) / threads_per_block_x
+      ! blocks_per_grid_y = (ny + threads_per_block_y - 1) / threads_per_block_y
 
       ! kernel dimensions for dev use
       ! print *, "kernel launched: ",blocks_per_grid_x," by ",blocks_per_grid_y
       !launch kernel
       call quadrature_kernel<<<dim3(blocks_per_grid_x, blocks_per_grid_y, 1), dim3(threads_per_block_x, threads_per_block_y, 1)>>> &
-          (x_array_d, y_array_d, t_array_d, result_array_d, nx, ny, ntb, n, m)
+          (patch_array_d, result_array_d, nx, ny, nt, n, m, x_obs, y_obs)
           
       istat = cudaDeviceSynchronize()
+      print *, "RETURNED FROM KERNEL........................"
 
       ! get results back
-      result_array(t_start:t_end) = result_array(t_start:t_end) + result_array_d(:)
+      ! result_array(t_start:t_end) = result_array(t_start:t_end) + result_array_d(:)
+      result_array = result_array_d
     end do
+    print *, "RESULTS COPIED BACK........................"
     
     ! scale results by hx * hy / 4 - look into moving this to kernel. Should be commutative w.r.t. results array summation
     result_array = result_array * (hx * hy / 4.0)
 
     ! clean-up time
-    deallocate(x_array_d)
-    deallocate(y_array_d)
-    deallocate(t_array_d)
+    ! deallocate(x_array_d)
+    ! deallocate(y_array_d)
+    ! deallocate(t_array_d)
+    deallocate(patch_array_d)
     deallocate(result_array_d)
+    print *, "RETURNING FROM QUADRATURE SUBROUTINE........................"
 
   end subroutine quadrature_gpu
 
