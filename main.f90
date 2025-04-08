@@ -13,7 +13,7 @@ program main
 
   real, parameter :: square_length = 1.0
   real, parameter :: square_height = 1.0
-  ! integer :: i, j, k
+  integer :: i !, j, k
   integer :: nt, nx, ny, n, m 
   real(kind=dp) :: hx, hy
   real :: pi
@@ -32,6 +32,7 @@ program main
   !type(TimeStep_AoS), allocatable :: patch_array(:)
   real, allocatable :: patch_array(:,:,:)
   real, allocatable :: observer(:)
+  real(kind=dp), allocatable :: direct_solution(:)
 
   ! results are per time step
   real(kind=dp), allocatable :: result_array(:)
@@ -72,7 +73,7 @@ program main
   call cpu_time(t_start)
 
   ! x, y, and time points calculation - also initialize results array to 0.0 
-  call generate_patch(nt, nx, ny, hx, hy, patch_array)
+  call generate_patch(nt, nx, ny, hx, hy, n, m, patch_array, observer, direct_solution)
   result_array = 0.0
 
   ! print *, patch_array(1)%arrays(1)%data(1) 
@@ -108,6 +109,15 @@ program main
   !     error_gpu = abs(result_array(i) - integral_value)
   !   end if
   ! end do
+
+  !validation for observer position forumla 
+  do i = 1, size(result_array)
+    error = result_array(i) - direct_solution(i)
+    if (error /= 0) then
+      print *, "Error non-zero on timestep:", i, " (", error, ")"
+    end if
+    print *, "\tResult value is:", result_array(i)
+  end do 
 
   ! return
   ! !CODE FOR VALIDATING RESULTS - USE FOR TROUBLESHOOTING

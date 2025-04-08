@@ -24,7 +24,7 @@ module helper_module
 
     contains
 
-    subroutine generate_patch(nt, nx, ny, hx, hy, time_array)
+    subroutine generate_patch(nt, nx, ny, hx, hy, n, m, time_array, observer, direct_solution)
       implicit none
       
       integer, parameter :: dp = kind(1.0d0)
@@ -32,32 +32,43 @@ module helper_module
       !type(TimeStep_AoS), allocatable, intent(out) :: time_array(:)
       real, allocatable, intent(out) :: time_array(:,:,:)
       real(kind=dp), allocatable :: origin(:)
-      integer, intent(in) :: nt, nx, ny
+      integer, intent(in) :: nt, nx, ny, n, m
       real(kind=dp), intent(in) :: hx, hy
+      real, intent(in) :: observer(:)
+      real(kind=dp), allocatable, intent(out) :: direct_solution(:)
       integer :: t, i, j, idx, nPoints
 
       real :: theta, cos_theta, sin_theta
+      real :: x_obs, y_obs
       real(kind=dp) :: x_local, y_local
-
+      real(kind=dp) :: r, f, w, quad_sum
       
+      real(kind=dp), parameter :: pi = 4*atan(1.)
+
+      x_obs = observer(1)
+      y_obs = observer(2)
+  
       ! Total number of points in the flattened grid
       nPoints = nx * ny
 
       !increase to 3 if we move to 3D
       allocate(origin(2))
       allocate(time_array(nt,(nx*ny),2))
+      allocate(direct_solution(nt))
 
       ! point the patch rotates around -  hard coded to (-3.2,-2.3)
-      origin(1) = -3.2
-      origin(2) = -2.3
+      origin(1) = -1.0
+      origin(2) = 0.5
 
-      !$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(t,i,j,theta,cos_theta)
+      !$OMP PARALLEL DO SCHEDULE(DYNAMIC) PRIVATE(t,i,j,theta,cos_theta,sin_theta,x_local, y_local, idx, quad_sum, r, f, w)
       do t = 1, nt
         
         ! rotation angle for this timestep 
         theta = 2.0 * 4*atan(1.) * t / nt
         cos_theta = cos(theta)
         sin_theta = sin(theta)
+
+        quad_sum = 0.0
 
         ! Loop over the 2D grid and compute the rotated coordinates.
         do j = 1, ny
@@ -70,13 +81,73 @@ module helper_module
             y_local = (j * hy) - origin(2)
 
             ! Apply the rotation transformation.
-            time_array(t,idx,1) = x_local * cos_theta - y_local * sin_theta + origin(1)
-            time_array(t,idx,2) = y_local * sin_theta + y_local * cos_theta + origin(2)
+            time_array(t, idx, 1) = x_local*cos_theta - y_local*sin_theta + origin(1)
+            time_array(t, idx, 2) = x_local*sin_theta + y_local*cos_theta + origin(2)
+
+            ! uncomment this to remove rotation.
+            ! time_array(t, idx, 1) = (i * hx)
+            ! time_array(t, idx, 2) = (j * hy)
+            
+            ! observer dist
+            r = sqrt((time_array(t, idx, 1) - x_obs)**2 + (time_array(t, idx, 2) - y_obs)**2)
+
+            ! integrand
+            f = ( sin(n*pi*time_array(t, idx, 1)) * sin(m*pi*time_array(t, idx, 2)) ) / r
+
+            if ((i == 1 .or. i == nx) .and. (j == 1 .or. j == ny)) then
+              w = 1.0
+            else if ((i == 1 .or. i == nx) .or. (j == 1 .or. j == ny)) then
+              w = 2.0
+            else
+              w = 4.0
+            end if
+
+            quad_sum = quad_sum + w * f
+
           end do
         end do
+        
+        direct_solution(t) = quad_sum * (hx * hy / 4.0)
+
       end do
       !$OMP END PARALLEL DO
+
+      do i = 1, nt
+        print *, "Direct solution", i, ":", direct_solution(i)
+      end do
+
+      ! to verify correct panel rotations.
+      ! call save_time_array(time_array, observer)
     end subroutine
+
+
+    subroutine save_time_array(time_array, observer)
+      implicit none
+      real, intent(in), allocatable :: time_array(:,:,:)
+      integer :: i, j
+      integer :: n_timesteps, n_points
+      integer :: unit
+      real, intent(in) :: observer(:)
+    
+      n_timesteps = size(time_array, 1)
+      n_points    = size(time_array, 2)
+    
+      open(newunit=unit, file="panel.txt", status='replace', action='write', form='formatted')
+    
+      do i = 1, n_timesteps
+         write(unit, '(A,I0)') "# Timestep ", i
+         do j = 1, n_points
+            write(unit, '(F10.6, A, F10.6)') time_array(i, j, 1), ",", time_array(i, j, 2)
+         end do
+         write(unit,*)
+      end do
+      
+      !observer pos
+      write(unit, '(F10.6, A, F10.6)') observer(1), ",", observer(2)
+    
+      close(unit)
+    end subroutine save_time_array    
+
   
     subroutine analytical_solution(n, m, integral_value)
 
@@ -103,16 +174,16 @@ module helper_module
         integer :: num_args, i, ios
         character(len=100) :: arg, next_arg
         integer, intent(out) :: nx, ny, nt, n, m
-        logical :: nx_set, ny_set, nt_set, n_set, m_set
+        logical :: nx_set, ny_set, nt_set, n_set, m_set, s_set, o_set
         logical, intent(out) :: do_serial
         real, allocatable, intent(out) :: observer(:)
       
         ! manually set whether or not to do serial execution this run - allows programmer to skip serial if it is too slow.
-        do_serial = .true.
+        do_serial = .false.
 
         allocate(observer(2))
-        observer(1) = 3.0
-        observer(2) = 3.0
+        observer(1) = -1.0
+        observer(2) = 0.5
       
         ! Initialize default values
         nt = 2**4
@@ -125,6 +196,8 @@ module helper_module
         nt_set = .false.
         n_set = .false.
         m_set = .false.
+        s_set = .false.
+        o_set = .false.
       
         num_args = COMMAND_ARGUMENT_COUNT()
       
@@ -168,6 +241,20 @@ module helper_module
               if (ios == 0) m_set = .true.
             endif
             i = i + 1
+          else if (trim(arg) == '-s') then
+            if (i + 1 <= num_args) then
+              call GET_COMMAND_ARGUMENT(i + 1, next_arg)
+              read(next_arg, '(I10)', IOSTAT=ios) do_serial
+              if (ios == 0) s_set = .true.
+            endif
+            i = i + 1
+          ! else if (trim(arg) == '-m') then
+          !   if (i + 1 <= num_args) then
+          !     call GET_COMMAND_ARGUMENT(i + 1, next_arg)
+          !     read(next_arg, '(I10)', IOSTAT=ios) observer
+          !     if (ios == 0) o_set = .true.
+          !   endif
+          !   i = i + 1
           endif
       
           i = i + 1
